@@ -22,7 +22,7 @@ permissions:
 
 env:
   ASSET_NAME: dist.zip
-  OWNER: talebook
+  OWNER: ${{ github.actor }}
   REPO: candle-reader
 
 jobs:
