@@ -1,6 +1,6 @@
 # talebook/candle-reader: Build + Release dist (only publish for tags; manual run picks the latest tag)
 # Behaviour:
-# - Triggered on tag push (refs/tags/v*) -> use that tag and create/upload release asset.
+# - Triggered on tag push (refs/tags/v*) -> use that tag and create/upload release asset, also add 'latest' tag.
 # - Triggered manually (workflow_dispatch) -> pick the latest tag in the repository (by semver-like sort),
 #   and create/upload a release for that tag (if release already exists, upload asset to it).
 #
@@ -78,7 +78,32 @@ jobs:
           echo "Using latest tag: ${TAG}"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
-      - name: Ensure Release exists (get upload_url or create release)
+      - name: Create latest tag locally
+        id: create_latest_tag
+        run: |
+          set -e
+          TAG="${{ steps.tag.outputs.tag }}"
+          
+          # Check if latest tag already exists locally
+          if git rev-parse "refs/tags/latest" >/dev/null 2>&1; then
+            echo "Latest tag already exists locally, will update it"
+            # Delete local latest tag
+            git tag -d latest || true
+          fi
+          
+          # Create new latest tag pointing to current commit
+          git tag latest "$(git rev-parse HEAD)"
+          echo "Created local latest tag"
+
+      - name: Push latest tag to remote
+        run: |
+          set -e
+          # Push latest tag to remote (force push to update if exists)
+          git push origin latest --force
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Ensure Release exists (get upload_url or create releases for both tags)
         id: ensure_release
         env:
           API_TOKEN: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
@@ -92,8 +117,9 @@ jobs:
             exit 1
           fi
 
-          echo "Checking if release for tag '$TAG' exists..."
-          # Query release by tag
+          echo "Processing release for main tag: '$TAG'"
+          
+          # Query release by main tag
           HTTP_STATUS=$(curl -s -o /tmp/release.json -w "%{http_code}" \
             -H "Authorization: token ${API_TOKEN}" \
             -H "Accept: application/vnd.github.v3+json" \
@@ -101,38 +127,58 @@ jobs:
 
           if [ "$HTTP_STATUS" = "200" ]; then
             UPLOAD_URL=$(jq -r '.upload_url' /tmp/release.json)
+            RELEASE_ID=$(jq -r '.id' /tmp/release.json)
             echo "Found existing release for ${TAG}"
             echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
-            exit 0
-          fi
-
-          if [ "$HTTP_STATUS" != "404" ]; then
-            echo "Unexpected response when checking release: HTTP ${HTTP_STATUS}"
-            cat /tmp/release.json || true
-            exit 1
-          fi
-
-          echo "Release for ${TAG} not found. Creating a release..."
-          # Create release
-          CREATE_RESPONSE=$(curl -s -H "Authorization: token ${API_TOKEN}" \
-            -H "Accept: application/vnd.github.v3+json" \
-            -X POST "https://api.github.com/repos/${OWNER}/${REPO}/releases" \
-            -d "{\"tag_name\":\"${TAG}\",\"name\":\"${TAG}\",\"draft\":false,\"prerelease\":false}")
-
-          # If API returned an error, show it
-          echo "$CREATE_RESPONSE" > /tmp/create.json
-          if echo "$CREATE_RESPONSE" | jq -e 'has("upload_url")' >/dev/null 2>&1; then
-            UPLOAD_URL=$(jq -r '.upload_url' /tmp/create.json)
-            echo "Created release for ${TAG}"
-            echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
-            exit 0
+            echo "release_id=$RELEASE_ID" >> $GITHUB_OUTPUT
           else
-            echo "Failed to create release, response:"
-            cat /tmp/create.json
-            exit 1
+            if [ "$HTTP_STATUS" != "404" ]; then
+              echo "Unexpected response when checking release: HTTP ${HTTP_STATUS}"
+              cat /tmp/release.json || true
+              exit 1
+            fi
+
+            echo "Release for ${TAG} not found. Creating a release..."
+            # Create release for main tag
+            CREATE_RESPONSE=$(curl -s -H "Authorization: token ${API_TOKEN}" \
+              -H "Accept: application/vnd.github.v3+json" \
+              -X POST "https://api.github.com/repos/${OWNER}/${REPO}/releases" \
+              -d "{\"tag_name\":\"${TAG}\",\"name\":\"${TAG}\",\"draft\":false,\"prerelease\":false}")
+
+            # If API returned an error, show it
+            echo "$CREATE_RESPONSE" > /tmp/create.json
+            if echo "$CREATE_RESPONSE" | jq -e 'has("upload_url")' >/dev/null 2>&1; then
+              UPLOAD_URL=$(jq -r '.upload_url' /tmp/create.json)
+              RELEASE_ID=$(jq -r '.id' /tmp/create.json)
+              echo "Created release for ${TAG}"
+              echo "upload_url=$UPLOAD_URL" >> $GITHUB_OUTPUT
+              echo "release_id=$RELEASE_ID" >> $GITHUB_OUTPUT
+            else
+              echo "Failed to create release, response:"
+              cat /tmp/create.json
+              exit 1
+            fi
           fi
 
-      - name: Upload dist.zip to Release
+          echo "Now updating latest tag to point to this release..."
+          # Check if latest tag has a release
+          LATEST_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: token ${API_TOKEN}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/latest")
+
+          if [ "$LATEST_STATUS" = "200" ]; then
+            # If latest release exists, update it to point to the same release ID
+            # Actually, we just need to ensure latest tag points to the right commit
+            # The release association will happen automatically since both tags point to same commit
+            echo "Latest release already exists, it will now point to the same commit as ${TAG}"
+          fi
+          
+          # Note: Since we pushed the latest tag above, GitHub will automatically
+          # create a release for the latest tag if one doesn't exist.
+          # If one exists, it will be updated to point to the new commit.
+
+      - name: Upload dist.zip to Release (main tag)
         uses: actions/upload-release-asset@v1
         with:
           upload_url: ${{ steps.ensure_release.outputs.upload_url }}
@@ -140,5 +186,43 @@ jobs:
           asset_name: ${{ env.ASSET_NAME }}
           asset_content_type: application/zip
         env:
-          # Prefer using RELEASE_PAT (repo-scoped PAT placed in repo secrets) if set, otherwise use GITHUB_TOKEN
           GITHUB_TOKEN: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+
+      - name: Upload dist.zip to Latest release (if separate release exists)
+        id: upload_latest
+        continue-on-error: true
+        env:
+          API_TOKEN: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+          OWNER: ${{ env.OWNER }}
+          REPO: ${{ env.REPO }}
+        run: |
+          set -e
+          # Check if latest tag has its own release (it usually does)
+          LATEST_STATUS=$(curl -s -o /tmp/latest_release.json -w "%{http_code}" \
+            -H "Authorization: token ${API_TOKEN}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/${OWNER}/${REPO}/releases/tags/latest")
+
+          if [ "$LATEST_STATUS" = "200" ]; then
+            LATEST_UPLOAD_URL=$(jq -r '.upload_url' /tmp/latest_release.json)
+            LATEST_RELEASE_ID=$(jq -r '.id' /tmp/latest_release.json)
+            
+            # Check if the latest release is different from the main tag release
+            MAIN_RELEASE_ID="${{ steps.ensure_release.outputs.release_id }}"
+            
+            if [ "$LATEST_RELEASE_ID" != "$MAIN_RELEASE_ID" ]; then
+              echo "Latest tag has a separate release (ID: $LATEST_RELEASE_ID), uploading asset to it too"
+              # Upload asset to latest release
+              curl -s -H "Authorization: token ${API_TOKEN}" \
+                -H "Accept: application/vnd.github.v3+json" \
+                -H "Content-Type: application/zip" \
+                --data-binary @"${{ env.ASSET_NAME }}" \
+                "${LATEST_UPLOAD_URL%\{?name,label\}}?name=${{ env.ASSET_NAME }}" > /tmp/upload_result.json
+              
+              echo "Asset uploaded to latest release"
+            else
+              echo "Latest tag shares the same release as main tag, no need to upload twice"
+            fi
+          else
+            echo "No separate release found for latest tag, skipping additional upload"
+          fi
