@@ -1,0 +1,51 @@
+# .github/workflows/trigger-downstream.yml
+name: Trigger talebook/talebook Build
+
+on:
+  workflow_run:
+    workflows: ["Build and release dist.zip (tag-only / manual latest-tag)"]
+    types:
+      - completed
+
+jobs:
+  trigger-talebook:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger talebook/talebook workflow
+        env:
+          API_TOKEN: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          
+          if [ -z "$API_TOKEN" ]; then
+            echo "No API token available"
+            exit 1
+          fi
+
+          # 获取当前工作流的信息
+          WORKFLOW_RUN_ID=${{ github.event.workflow_run.id }}
+          COMMIT_SHA=${{ github.event.workflow_run.head_sha }}
+          TAG_REF=${{ github.event.workflow_run.head_branch }}
+          
+          echo "Triggering talebook/talebook workflow after successful build"
+          echo "Triggered by workflow run: $WORKFLOW_RUN_ID"
+          echo "Commit SHA: $COMMIT_SHA"
+          echo "Tag/Branch: $TAG_REF"
+
+          # 使用 repository_dispatch 事件触发目标仓库的 workflow
+          curl -X POST \
+            -H "Authorization: token $API_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/repos/talebook/talebook/dispatches" \
+            -d '{
+              "event_type": "candle-reader-updated",
+              "client_payload": {
+                "candle_reader_version": "'"${TAG_REF}"'",
+                "candle_reader_commit": "'"${COMMIT_SHA}"'",
+                "triggered_by_workflow": "'"${WORKFLOW_RUN_ID}"'",
+                "source_repo": "talebook/candle-reader"
+              }
+            }'
+
+          echo "Successfully triggered talebook/talebook workflow"
