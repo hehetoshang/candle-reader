@@ -1250,7 +1250,7 @@ export default {
     toc_items: [],
     comments: [],
     comments_location: {}, // 评论内容的位置
-    selected_location: {}, // 选中内容的位置
+    selected_location: null, // 选中内容的位置
 
     current_toc_title: "",
     current_toc: null, // 当前阅读的章节对象
