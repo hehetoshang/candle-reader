@@ -991,27 +991,38 @@ export default {
     },
     // TTS 相关方法
     initTTS: function() {
+      console.log('开始初始化 TTS');
       try {
+        console.log('TTS 设置:', this.ttsSettings);
         this.tts = new EdgeSpeechTTS({
           voice: this.ttsSettings.voice,
           rate: this.ttsSettings.rate,
           pitch: this.ttsSettings.pitch,
           volume: this.ttsSettings.volume,
         });
-        console.log('TTS 初始化成功');
+        console.log('TTS 初始化成功:', this.tts);
       } catch (error) {
         console.error('TTS 初始化失败:', error);
       }
     },
     playText: async function(text) {
+      console.log('playText 被调用，文本:', text);
       if (!this.tts) {
+        console.log('TTS 未初始化，开始初始化');
         this.initTTS();
       }
       
       try {
+        console.log('TTS 实例:', this.tts);
+        if (!this.tts) {
+          console.log('TTS 初始化失败，无法播放');
+          return;
+        }
         this.isPlaying = true;
         this.currentPlayText = text;
+        console.log('开始播放文本');
         await this.tts.speak(text);
+        console.log('播放完成');
         this.isPlaying = false;
       } catch (error) {
         console.error('播放失败:', error);
@@ -1038,17 +1049,30 @@ export default {
       }
     },
     playFromHere: function() {
-      if (!this.selected_location) return;
+      console.log('playFromHere 被调用');
+      if (!this.selected_location) {
+        console.log('selected_location 不存在');
+        return;
+      }
       
+      console.log('selected_location:', this.selected_location);
       const { contents, cfi } = this.selected_location;
       try {
         // 获取选中段落的文本
+        console.log('尝试获取文本范围，cfi:', cfi);
         const range = this.rendition.getRange(cfi);
+        console.log('获取到的 range:', range);
         if (range) {
           const text = range.toString().trim();
+          console.log('获取到的文本:', text);
           if (text) {
+            console.log('调用 playText');
             this.playText(text);
+          } else {
+            console.log('文本为空');
           }
+        } else {
+          console.log('range 不存在');
         }
       } catch (error) {
         console.error('获取文本失败:', error);
