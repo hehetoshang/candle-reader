@@ -145,6 +145,57 @@
             </v-row>
         </v-list-item>
 
+        <!-- TTS 设置 -->
+        <v-divider></v-divider>
+        <v-list-item class="my-2">
+            <span class="text-h6">听书设置</span>
+        </v-list-item>
+        
+        <v-list-item class="my-2">
+            <v-row class="align-center">
+                <v-col cols="2">
+                    <span>语速</span>
+                </v-col>
+                <v-col cols="9">
+                    <v-slider hide-details v-model="opt.tts_rate" max="2" min="0.5" step="0.1"
+                        @update:modelValue="updateTTSRate"></v-slider>
+                </v-col>
+                <v-col cols="1" class="d-flex align-center justify-end">
+                    <span>{{ opt.tts_rate.toFixed(1) }}x</span>
+                </v-col>
+            </v-row>
+        </v-list-item>
+        
+        <v-list-item class="my-2">
+            <v-row class="align-center">
+                <v-col cols="2">
+                    <span>音调</span>
+                </v-col>
+                <v-col cols="9">
+                    <v-slider hide-details v-model="opt.tts_pitch" max="2" min="0.5" step="0.1"
+                        @update:modelValue="updateTTSPitch"></v-slider>
+                </v-col>
+                <v-col cols="1" class="d-flex align-center justify-end">
+                    <span>{{ opt.tts_pitch.toFixed(1) }}</span>
+                </v-col>
+            </v-row>
+        </v-list-item>
+        
+        <v-list-item class="my-2">
+            <v-row class="align-center">
+                <v-col cols="2">
+                    <span>音量</span>
+                </v-col>
+                <v-col cols="9">
+                    <v-slider hide-details v-model="opt.tts_volume" max="1" min="0" step="0.1"
+                        @update:modelValue="updateTTSVolume"></v-slider>
+                </v-col>
+                <v-col cols="1" class="d-flex align-center justify-end">
+                    <span>{{ Math.round(opt.tts_volume * 100) }}%</span>
+                </v-col>
+            </v-row>
+        </v-list-item>
+
         <v-divider></v-divider>
         <v-list-item class="my-2" title="带 * 号功能都在开发中"> 
         </v-list-item>
@@ -167,7 +218,10 @@ export default {
             line_height: this.settings?.line_height || this.opt.line_height,
             letter_spacing: this.settings?.letter_spacing || this.opt.letter_spacing,
             brightness: this.settings?.brightness || this.opt.brightness,
-            show_comments: this.settings?.show_comments ?? this.opt.show_comments
+            show_comments: this.settings?.show_comments ?? this.opt.show_comments,
+            tts_rate: this.settings?.tts_rate || this.opt.tts_rate,
+            tts_pitch: this.settings?.tts_pitch || this.opt.tts_pitch,
+            tts_volume: this.settings?.tts_volume || this.opt.tts_volume
         };
     },
     methods: {
@@ -198,6 +252,18 @@ export default {
                 theme_mode: mode
             };
             this.$emit("update", { ...this.opt });
+        },
+        updateTTSRate: function(value) {
+            this.opt.tts_rate = value;
+            this.$emit("update", { ...this.opt });
+        },
+        updateTTSPitch: function(value) {
+            this.opt.tts_pitch = value;
+            this.$emit("update", { ...this.opt });
+        },
+        updateTTSVolume: function(value) {
+            this.opt.tts_volume = value;
+            this.$emit("update", { ...this.opt });
         }
     },
     props: ['settings'],
@@ -210,6 +276,9 @@ export default {
             line_height: 1.5,
             letter_spacing: 0,
             brightness: 100,
+            tts_rate: 1.0,
+            tts_pitch: 1.0,
+            tts_volume: 1.0,
         },
         themes: [{
             name: "white",

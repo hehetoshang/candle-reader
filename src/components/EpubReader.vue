@@ -40,6 +40,11 @@
         <span>AI</span>
       </v-btn>
 
+      <v-btn @click="isPlaying ? pauseTTS() : playCurrentChapter()">
+        <v-icon>{{ isPlaying ? 'mdi-pause' : 'mdi-play' }}</v-icon>
+        <span>{{ isPlaying ? '暂停' : '听书' }}</span>
+      </v-btn>
+
     </v-bottom-navigation>
 
     <v-bottom-sheet class="fixed mb-14" max-height="90%" v-model="menu.panels.settings" contained persistent z-index="234">
@@ -69,7 +74,7 @@
       <v-toolbar density="compact" border dense floating elevation="10" rounded>
         <v-btn @click="on_click_toolbar_comments">发段评</v-btn>
         <v-divider vertical></v-divider>
-        <v-btn>从这里听</v-btn>
+        <v-btn @click="playFromHere" :disabled="!selected_location">从这里听</v-btn>
         <v-divider vertical></v-divider>
         <v-btn>复制</v-btn>
         <v-divider vertical></v-divider>
@@ -125,6 +130,7 @@ import BookToc from './BookToc.vue'
 import Guest from './Guest.vue'
 import UserCenter from './UserCenter.vue'
 import BookComments from './BookComments.vue'
+import { EdgeSpeechTTS } from '@lobehub/tts'
 
 export default {
   name: 'EpubReader',
@@ -285,6 +291,22 @@ export default {
             'letter-spacing': `${letterSpacing}px !important`,
           }
         });
+      }
+      
+      // 应用 TTS 设置
+      if (opt.tts_rate !== undefined || opt.tts_pitch !== undefined || opt.tts_volume !== undefined) {
+        if (this.tts) {
+          const rate = opt.tts_rate !== undefined ? opt.tts_rate : this.ttsSettings.rate;
+          const pitch = opt.tts_pitch !== undefined ? opt.tts_pitch : this.ttsSettings.pitch;
+          const volume = opt.tts_volume !== undefined ? opt.tts_volume : this.ttsSettings.volume;
+          
+          this.ttsSettings.rate = rate;
+          this.ttsSettings.pitch = pitch;
+          this.ttsSettings.volume = volume;
+          
+          // 更新 TTS 实例的设置
+          this.tts.update({ rate, pitch, volume });
+        }
       }
       
       this.save_settings();
@@ -928,6 +950,9 @@ export default {
           clearTimeout(this.loadingTimeout);
           // 确保覆盖层隐藏
           this.loading = false;
+          
+          // 重新初始化 TTS
+          this.initTTS();
         })
         .catch(error => {
           clearTimeout(this.loadingTimeout);
@@ -946,6 +971,82 @@ export default {
         // 确保覆盖层隐藏并显示错误对话框
         this.loading = false;
         this.showTimeoutDialog = true;
+      }
+    },
+    // TTS 相关方法
+    initTTS: function() {
+      try {
+        this.tts = new EdgeSpeechTTS({
+          voice: this.ttsSettings.voice,
+          rate: this.ttsSettings.rate,
+          pitch: this.ttsSettings.pitch,
+          volume: this.ttsSettings.volume,
+        });
+        console.log('TTS 初始化成功');
+      } catch (error) {
+        console.error('TTS 初始化失败:', error);
+      }
+    },
+    playText: async function(text) {
+      if (!this.tts) {
+        this.initTTS();
+      }
+      
+      try {
+        this.isPlaying = true;
+        this.currentPlayText = text;
+        await this.tts.speak(text);
+        this.isPlaying = false;
+      } catch (error) {
+        console.error('播放失败:', error);
+        this.isPlaying = false;
+      }
+    },
+    pauseTTS: function() {
+      if (this.tts && this.isPlaying) {
+        this.tts.pause();
+        this.isPlaying = false;
+      }
+    },
+    resumeTTS: function() {
+      if (this.tts && !this.isPlaying) {
+        this.tts.resume();
+        this.isPlaying = true;
+      }
+    },
+    stopTTS: function() {
+      if (this.tts) {
+        this.tts.stop();
+        this.isPlaying = false;
+        this.currentPlayText = '';
+      }
+    },
+    playFromHere: function() {
+      if (!this.selected_location) return;
+      
+      const { contents, cfi } = this.selected_location;
+      try {
+        // 获取选中段落的文本
+        const range = this.rendition.getRange(cfi);
+        const text = range.toString().trim();
+        if (text) {
+          this.playText(text);
+        }
+      } catch (error) {
+        console.error('获取文本失败:', error);
+      }
+    },
+    playCurrentChapter: function() {
+      if (!this.current_toc || !this.current_toc.elem) return;
+      
+      try {
+        // 获取当前章节的所有文本
+        const chapterText = this.current_toc.elem.textContent.trim();
+        if (chapterText) {
+          this.playText(chapterText);
+        }
+      } catch (error) {
+        console.error('获取章节文本失败:', error);
       }
     },
   },
@@ -1071,6 +1172,9 @@ export default {
           'letter-spacing': `${this.settings.letter_spacing}px !important`,
         }
       });
+      
+      // 初始化 TTS
+      this.initTTS();
     })
     .catch(error => {
       clearTimeout(this.loadingTimeout);
@@ -1096,6 +1200,9 @@ export default {
       theme_night: "grey",
       show_comments: true,
       app_theme: "light",
+      tts_rate: 1.0,
+      tts_pitch: 1.0,
+      tts_volume: 1.0,
     },
 
     wide_screen: 1000, // 宽屏尺寸
@@ -1141,6 +1248,16 @@ export default {
     is_handlering_selected_content: false,
     check_if_selected_content: false,
     showTimeoutDialog: false,
+    // TTS 相关状态
+    tts: null,
+    isPlaying: false,
+    currentPlayText: '',
+    ttsSettings: {
+      voice: 'zh-CN-YunxiNeural',
+      rate: 1.0,
+      pitch: 1.0,
+      volume: 1.0
+    },
   })
 }
 </script>
