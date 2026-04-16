@@ -1044,9 +1044,11 @@ export default {
       try {
         // 获取选中段落的文本
         const range = this.rendition.getRange(cfi);
-        const text = range.toString().trim();
-        if (text) {
-          this.playText(text);
+        if (range) {
+          const text = range.toString().trim();
+          if (text) {
+            this.playText(text);
+          }
         }
       } catch (error) {
         console.error('获取文本失败:', error);
