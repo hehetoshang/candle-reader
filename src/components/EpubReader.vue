@@ -40,11 +40,6 @@
         <span>AI</span>
       </v-btn>
 
-      <v-btn @click="isPlaying ? pauseTTS() : playCurrentChapter()">
-        <v-icon>{{ isPlaying ? 'mdi-pause' : 'mdi-play' }}</v-icon>
-        <span>{{ isPlaying ? '暂停' : '听书' }}</span>
-      </v-btn>
-
     </v-bottom-navigation>
 
     <v-bottom-sheet class="fixed mb-14" max-height="90%" v-model="menu.panels.settings" contained persistent z-index="234">
@@ -80,6 +75,27 @@
         <v-divider vertical></v-divider>
         <v-btn>反馈</v-btn>
       </v-toolbar>
+    </div>
+
+    <!-- 悬浮播放控制 -->
+    <div class="floating-player" v-if="isPlaying || currentPlayText">
+      <v-card class="pa-2" elevation="8" rounded="lg">
+        <v-row align="center">
+          <v-col cols="2">
+            <v-btn @click="isPlaying ? pauseTTS() : resumeTTS()" icon color="primary">
+              <v-icon>{{ isPlaying ? 'mdi-pause' : 'mdi-play' }}</v-icon>
+            </v-btn>
+          </v-col>
+          <v-col cols="8">
+            <div class="playback-text truncate">{{ currentPlayText.length > 50 ? currentPlayText.substring(0, 50) + '...' : currentPlayText }}</div>
+          </v-col>
+          <v-col cols="2">
+            <v-btn @click="stopTTS()" icon color="error">
+              <v-icon>mdi-stop</v-icon>
+            </v-btn>
+          </v-col>
+        </v-row>
+      </v-card>
     </div>
 
     <!-- 阅读界面 -->
@@ -1337,5 +1353,20 @@ export default {
 
 .fixed {
   position: fixed !important;
+}
+
+.floating-player {
+  position: fixed;
+  bottom: 80px; /* 位于底部导航栏上方 */
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2600; /* 确保在底部导航栏之上 */
+  width: 90%;
+  max-width: 600px;
+}
+
+.playback-text {
+  font-size: 14px;
+  line-height: 1.4;
 }
 </style>
