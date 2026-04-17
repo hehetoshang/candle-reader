@@ -64,12 +64,16 @@
       <v-card title="开发中"></v-card>
     </v-bottom-sheet>
 
+    <v-bottom-sheet class="fixed mb-14" max-height="90%" v-model="menu.panels.audio" contained z-index="234">
+      <advanced-audio-player :text="selected_text" />
+    </v-bottom-sheet>
+
     <!-- 浮动工具栏 -->
     <div id="comments-toolbar" :style="`left: ${toolbar_left}px; top: ${toolbar_top}px;`">
       <v-toolbar density="compact" border dense floating elevation="10" rounded>
         <v-btn @click="on_click_toolbar_comments">发段评</v-btn>
         <v-divider vertical></v-divider>
-        <v-btn>从这里听</v-btn>
+        <v-btn @click="on_click_toolbar_listen">从这里听</v-btn>
         <v-divider vertical></v-divider>
         <v-btn>复制</v-btn>
         <v-divider vertical></v-divider>
@@ -125,6 +129,7 @@ import BookToc from './BookToc.vue'
 import Guest from './Guest.vue'
 import UserCenter from './UserCenter.vue'
 import BookComments from './BookComments.vue'
+import AdvancedAudioPlayer from './AdvancedAudioPlayer.vue'
 
 export default {
   name: 'EpubReader',
@@ -133,7 +138,8 @@ export default {
     BookToc,
     Guest,
     UserCenter,
-    BookComments
+    BookComments,
+    AdvancedAudioPlayer
   },
   props: ['book_url', 'display_url', 'debug', 'themes_css'],
   computed: {
@@ -547,6 +553,25 @@ export default {
       const s = this.selected_location;
       this.hide_toolbar();
       this.show_selected_comments(s.toc, s.segment_id, s.cfi);
+    },
+    on_click_toolbar_listen: function () {
+      console.log("点击听书按钮", this.selected_location)
+      const s = this.selected_location;
+      this.hide_toolbar();
+      
+      // 获取选中的文本
+      if (window.getSelection) {
+        this.selected_text = window.getSelection().toString();
+      } else if (document.selection) {
+        this.selected_text = document.selection.createRange().text;
+      }
+      
+      if (this.selected_text) {
+        this.set_menu('audio');
+      } else {
+        // 如果没有选中文本，提示用户
+        alert('请先选中要朗读的文本');
+      }
     },
     on_keyup: function (e) {
       const c = e.keyCode || e.which;
@@ -1119,6 +1144,7 @@ export default {
         settings: false,
         comments: false,
         ai: false,
+        audio: false,
       }
     },
     theme_mode: "day",
@@ -1126,6 +1152,7 @@ export default {
     comments: [],
     comments_location: {}, // 评论内容的位置
     selected_location: {}, // 选中内容的位置
+    selected_text: "", // 选中的文本（用于听书）
 
     current_toc_title: "",
     current_toc: null, // 当前阅读的章节对象
