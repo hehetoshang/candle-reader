@@ -560,11 +560,27 @@ export default {
       this.hide_toolbar();
       
       // 获取选中的文本
-      if (window.getSelection) {
-        this.selected_text = window.getSelection().toString();
-      } else if (document.selection) {
-        this.selected_text = document.selection.createRange().text;
+      let selectedText = '';
+      
+      // 尝试从 iframe 中获取选择（电子书内容在 iframe 中）
+      const readerElement = document.getElementById('reader');
+      if (readerElement && readerElement.contentDocument) {
+        const iframeWindow = readerElement.contentWindow;
+        if (iframeWindow.getSelection) {
+          selectedText = iframeWindow.getSelection().toString();
+        } else if (iframeWindow.document.selection) {
+          selectedText = iframeWindow.document.selection.createRange().text;
+        }
       }
+      
+      // 如果 iframe 中没有选择，尝试从主窗口获取
+      if (!selectedText && window.getSelection) {
+        selectedText = window.getSelection().toString();
+      } else if (!selectedText && document.selection) {
+        selectedText = document.selection.createRange().text;
+      }
+      
+      this.selected_text = selectedText;
       
       if (this.selected_text) {
         this.set_menu('audio');
