@@ -126,8 +126,15 @@ export default {
       }
     },
     text(newValue) {
-      if (newValue) {
+      console.log('===== AudioPlayer text 属性变化 =====');
+      console.log('newValue =', newValue);
+      console.log('newValue length =', newValue ? newValue.length : 0);
+      
+      if (newValue && newValue.length > 0) {
+        console.log('开始生成语音');
         this.generateSpeech(newValue);
+      } else {
+        console.log('text 为空，不生成语音');
       }
     }
   },

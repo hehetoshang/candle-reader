@@ -513,11 +513,14 @@ export default {
       return (this.toolbar_left > 0);
     },
     on_select_content: function (cfiRange, contents) {
-      console.log("on selectd", cfiRange, contents)
+      console.log("===== 开始处理文本选择 =====");
+      console.log("on selectd", cfiRange, contents);
       this.is_handlering_selected_content = true;
 
       // 找到选中的元素，并上溯到 P 或者 Hx 对象
       const range = this.rendition.getRange(cfiRange);
+      console.log("Range 对象:", range);
+      
       var p = range.startContainer.nodeType === Node.TEXT_NODE
         ? range.startContainer.parentElement
         : range.startContainer;
@@ -529,7 +532,10 @@ export default {
       // 获取选中的文本内容
       const selectedText = range.toString().trim();
       console.log("selected text =", selectedText);
+      console.log("selected text length =", selectedText.length);
+      
       this.selected_text = selectedText;
+      console.log("this.selected_text =", this.selected_text);
 
       // 遍历toc，查找最近的章节名称
       // 然后基于章节名的位置，计算选中段落是第几个，作为ID
@@ -548,10 +554,13 @@ export default {
         contents: contents,
         segment_id: segment_id
       }
+      console.log("selected_location =", this.selected_location);
 
       // 把 toolbar 移动到段落附近
-      const view = this.rendition.views()._views.filter( view => { return view.index == contents.sectionIndex})[0]
+      const view = this.rendition.views()._views.filter( view => { return view.index == contents.sectionIndex})[0];
+      console.log("View object:", view);
       this.show_toolbar(p.getBoundingClientRect(), view.iframe.getBoundingClientRect());
+      console.log("===== 文本选择处理完成 =====");
     },
     on_click_toolbar_comments: function () {
       console.log("点击发表评论按钮", this.selected_location)
@@ -560,9 +569,17 @@ export default {
       this.show_selected_comments(s.toc, s.segment_id, s.cfi);
     },
     on_click_toolbar_listen: function () {
-      console.log("点击从这里听按钮", this.selected_text)
+      console.log("===== 点击从这里听按钮 =====");
+      console.log("selected_text =", this.selected_text);
+      console.log("selected_text length =", this.selected_text.length);
+      console.log("selected_location =", this.selected_location);
+      
       this.hide_toolbar();
+      console.log("隐藏工具栏完成");
+      
       this.set_menu('audio');
+      console.log("设置菜单为 audio 完成");
+      console.log("===== 从这里听按钮处理完成 =====");
     },
     on_keyup: function (e) {
       const c = e.keyCode || e.which;
