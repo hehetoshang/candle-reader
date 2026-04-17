@@ -69,12 +69,33 @@
       <v-toolbar density="compact" border dense floating elevation="10" rounded>
         <v-btn @click="on_click_toolbar_comments">发段评</v-btn>
         <v-divider vertical></v-divider>
-        <v-btn>从这里听</v-btn>
+        <v-btn @click="playFromHere" :disabled="!selected_location">从这里听</v-btn>
         <v-divider vertical></v-divider>
         <v-btn>复制</v-btn>
         <v-divider vertical></v-divider>
         <v-btn>反馈</v-btn>
       </v-toolbar>
+    </div>
+
+    <!-- 悬浮播放控制 -->
+    <div class="floating-player" v-if="isPlaying || currentPlayText">
+      <v-card class="pa-2" elevation="8" rounded="lg">
+        <v-row align="center">
+          <v-col cols="2">
+            <v-btn @click="isPlaying ? pauseTTS() : resumeTTS()" icon color="primary">
+              <v-icon>{{ isPlaying ? 'mdi-pause' : 'mdi-play' }}</v-icon>
+            </v-btn>
+          </v-col>
+          <v-col cols="8">
+            <div class="playback-text truncate">{{ currentPlayText.length > 50 ? currentPlayText.substring(0, 50) + '...' : currentPlayText }}</div>
+          </v-col>
+          <v-col cols="2">
+            <v-btn @click="stopTTS()" icon color="error">
+              <v-icon>mdi-stop</v-icon>
+            </v-btn>
+          </v-col>
+        </v-row>
+      </v-card>
     </div>
 
     <!-- 阅读界面 -->
@@ -285,6 +306,22 @@ export default {
             'letter-spacing': `${letterSpacing}px !important`,
           }
         });
+      }
+      
+      // 应用 TTS 设置
+      if (opt.tts_rate !== undefined || opt.tts_pitch !== undefined || opt.tts_volume !== undefined) {
+        if (this.tts) {
+          const rate = opt.tts_rate !== undefined ? opt.tts_rate : this.ttsSettings.rate;
+          const pitch = opt.tts_pitch !== undefined ? opt.tts_pitch : this.ttsSettings.pitch;
+          const volume = opt.tts_volume !== undefined ? opt.tts_volume : this.ttsSettings.volume;
+          
+          this.ttsSettings.rate = rate;
+          this.ttsSettings.pitch = pitch;
+          this.ttsSettings.volume = volume;
+          
+          // 更新 TTS 实例的设置
+          this.tts.update({ rate, pitch, volume });
+        }
       }
       
       this.save_settings();
@@ -520,6 +557,10 @@ export default {
       }
       console.log("selected elem =", p);
 
+      // 获取选中段落的文本
+      const selectedText = p.textContent.trim();
+      console.log("selected text =", selectedText);
+
       // 遍历toc，查找最近的章节名称
       // 然后基于章节名的位置，计算选中段落是第几个，作为ID
       const cfi = new ePub.CFI(p, contents.cfiBase);
@@ -535,7 +576,9 @@ export default {
         toc: toc,
         cfi: cfi,
         contents: contents,
-        segment_id: segment_id
+        segment_id: segment_id,
+        text: selectedText,
+        element: p
       }
 
       // 把 toolbar 移动到段落附近
@@ -928,6 +971,9 @@ export default {
           clearTimeout(this.loadingTimeout);
           // 确保覆盖层隐藏
           this.loading = false;
+          
+          // 重新初始化 TTS
+          this.initTTS();
         })
         .catch(error => {
           clearTimeout(this.loadingTimeout);
@@ -946,6 +992,134 @@ export default {
         // 确保覆盖层隐藏并显示错误对话框
         this.loading = false;
         this.showTimeoutDialog = true;
+      }
+    },
+    // TTS 相关方法 - 使用 Lobe TTS + 浏览器原生 Audio
+    initTTS: function() {
+      try {
+        this.tts = new EdgeSpeechTTS({
+          locale: 'zh-CN'
+        });
+        console.log('TTS 初始化成功 (使用 Lobe TTS)');
+      } catch (error) {
+        console.error('TTS 初始化失败:', error);
+      }
+    },
+    playText: async function(text) {
+      console.log('playText 被调用, text:', text);
+      
+      if (!this.tts) {
+        console.log('TTS 未初始化，正在初始化...');
+        this.initTTS();
+      }
+      console.log('TTS 实例:', this.tts);
+      
+      try {
+        console.log('设置 isPlaying 和 currentPlayText');
+        this.isPlaying = true;
+        this.currentPlayText = text;
+        
+        // 创建音频数据
+        const payload = {
+          input: text,
+          options: {
+            voice: 'zh-CN-YunxiNeural',
+            rate: this.settings.tts_rate,
+            pitch: this.settings.tts_pitch,
+            volume: this.settings.tts_volume
+          }
+        };
+        
+        console.log('开始调用 tts.create...');
+        const response = await this.tts.create(payload);
+        console.log('tts.create 完成, response:', response);
+        
+        // 获取音频 blob
+        const audioBlob = await response.blob();
+        console.log('音频 blob 大小:', audioBlob.size);
+        
+        // 创建音频 URL 并播放
+        const audioUrl = URL.createObjectURL(audioBlob);
+        this.audioElement = new Audio(audioUrl);
+        
+        this.audioElement.onended = () => {
+          console.log('播放完成');
+          this.isPlaying = false;
+          URL.revokeObjectURL(audioUrl);
+        };
+        
+        this.audioElement.onerror = (event) => {
+          console.error('播放错误:', event);
+          this.isPlaying = false;
+          URL.revokeObjectURL(audioUrl);
+        };
+        
+        console.log('开始播放音频');
+        await this.audioElement.play();
+      } catch (error) {
+        console.error('播放失败:', error);
+        this.isPlaying = false;
+      }
+    },
+    pauseTTS: function() {
+      if (this.audioElement && this.isPlaying) {
+        this.audioElement.pause();
+        this.isPlaying = false;
+      }
+    },
+    resumeTTS: function() {
+      if (this.audioElement && !this.isPlaying) {
+        this.audioElement.play();
+        this.isPlaying = true;
+      }
+    },
+    stopTTS: function() {
+      if (this.audioElement) {
+        this.audioElement.pause();
+        this.audioElement = null;
+      }
+      this.isPlaying = false;
+      this.currentPlayText = '';
+    },
+    playFromHere: function() {
+      console.log('playFromHere 被调用');
+      console.log('selected_location:', this.selected_location);
+      if (!this.selected_location) {
+        console.log('selected_location 为空，返回');
+        return;
+      }
+      
+      const { text } = this.selected_location;
+      console.log('从 selected_location 中获取的 text:', text);
+      
+      if (text && text.trim()) {
+        console.log('调用 playText');
+        this.playText(text.trim());
+      } else {
+        console.log('text 为空，尝试直接从 element 获取');
+        const { element } = this.selected_location;
+        if (element) {
+          const fallbackText = element.textContent.trim();
+          if (fallbackText) {
+            console.log('从 element 获取到 text:', fallbackText);
+            this.playText(fallbackText);
+          } else {
+            console.log('无法获取到文本');
+          }
+        }
+      }
+    },
+    playCurrentChapter: function() {
+      if (!this.current_toc || !this.current_toc.elem) return;
+      
+      try {
+        // 获取当前章节的所有文本
+        const chapterText = this.current_toc.elem.textContent.trim();
+        if (chapterText) {
+          this.playText(chapterText);
+        }
+      } catch (error) {
+        console.error('获取章节文本失败:', error);
       }
     },
   },
@@ -1071,6 +1245,9 @@ export default {
           'letter-spacing': `${this.settings.letter_spacing}px !important`,
         }
       });
+      
+      // 初始化 TTS
+      this.initTTS();
     })
     .catch(error => {
       clearTimeout(this.loadingTimeout);
@@ -1096,6 +1273,9 @@ export default {
       theme_night: "grey",
       show_comments: true,
       app_theme: "light",
+      tts_rate: 1.0,
+      tts_pitch: 1.0,
+      tts_volume: 1.0,
     },
 
     wide_screen: 1000, // 宽屏尺寸
@@ -1141,6 +1321,11 @@ export default {
     is_handlering_selected_content: false,
     check_if_selected_content: false,
     showTimeoutDialog: false,
+    // TTS 相关状态
+    tts: null,
+    audioElement: null,
+    isPlaying: false,
+    currentPlayText: '',
   })
 }
 </script>
@@ -1220,5 +1405,20 @@ export default {
 
 .fixed {
   position: fixed !important;
+}
+
+.floating-player {
+  position: fixed;
+  bottom: 80px; /* 位于底部导航栏上方 */
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2600; /* 确保在底部导航栏之上 */
+  width: 90%;
+  max-width: 600px;
+}
+
+.playback-text {
+  font-size: 14px;
+  line-height: 1.4;
 }
 </style>
