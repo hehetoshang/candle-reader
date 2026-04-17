@@ -64,12 +64,16 @@
       <v-card title="开发中"></v-card>
     </v-bottom-sheet>
 
+    <v-bottom-sheet class="fixed mb-14" max-height="90%" v-model="menu.panels.audio" contained z-index="234">
+      <audio-player :text="selected_text"></audio-player>
+    </v-bottom-sheet>
+
     <!-- 浮动工具栏 -->
     <div id="comments-toolbar" :style="`left: ${toolbar_left}px; top: ${toolbar_top}px;`">
       <v-toolbar density="compact" border dense floating elevation="10" rounded>
         <v-btn @click="on_click_toolbar_comments">发段评</v-btn>
         <v-divider vertical></v-divider>
-        <v-btn>从这里听</v-btn>
+        <v-btn @click="on_click_toolbar_listen">从这里听</v-btn>
         <v-divider vertical></v-divider>
         <v-btn>复制</v-btn>
         <v-divider vertical></v-divider>
@@ -125,6 +129,7 @@ import BookToc from './BookToc.vue'
 import Guest from './Guest.vue'
 import UserCenter from './UserCenter.vue'
 import BookComments from './BookComments.vue'
+import AudioPlayer from './AudioPlayer.vue'
 
 export default {
   name: 'EpubReader',
@@ -133,7 +138,8 @@ export default {
     BookToc,
     Guest,
     UserCenter,
-    BookComments
+    BookComments,
+    AudioPlayer
   },
   props: ['book_url', 'display_url', 'debug', 'themes_css'],
   computed: {
@@ -520,6 +526,11 @@ export default {
       }
       console.log("selected elem =", p);
 
+      // 获取选中的文本内容
+      const selectedText = range.toString().trim();
+      console.log("selected text =", selectedText);
+      this.selected_text = selectedText;
+
       // 遍历toc，查找最近的章节名称
       // 然后基于章节名的位置，计算选中段落是第几个，作为ID
       const cfi = new ePub.CFI(p, contents.cfiBase);
@@ -547,6 +558,11 @@ export default {
       const s = this.selected_location;
       this.hide_toolbar();
       this.show_selected_comments(s.toc, s.segment_id, s.cfi);
+    },
+    on_click_toolbar_listen: function () {
+      console.log("点击从这里听按钮", this.selected_text)
+      this.hide_toolbar();
+      this.set_menu('audio');
     },
     on_keyup: function (e) {
       const c = e.keyCode || e.which;
@@ -1119,6 +1135,7 @@ export default {
         settings: false,
         comments: false,
         ai: false,
+        audio: false,
       }
     },
     theme_mode: "day",
@@ -1141,6 +1158,9 @@ export default {
     is_handlering_selected_content: false,
     check_if_selected_content: false,
     showTimeoutDialog: false,
+    // 听书功能相关状态
+    selected_text: '',
+    show_audio_player: false,
   })
 }
 </script>
