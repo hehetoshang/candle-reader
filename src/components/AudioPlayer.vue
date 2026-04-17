@@ -37,6 +37,8 @@
             <v-select
               v-model="voice"
               :items="voices"
+              item-text="text"
+              item-value="value"
               label="选择语音"
               density="compact"
               class="mb-2"
@@ -116,15 +118,21 @@ export default {
       
       this.isLoading = true;
       try {
-        const response = await this.tts.create({
+        console.log('开始生成语音，文本长度:', text.length);
+        console.log('使用语音:', this.voice);
+        
+        // 使用 createAudio 方法直接获取 Blob
+        const blob = await this.tts.createAudio({
           input: text,
           options: {
             voice: this.voice
           }
         });
         
-        const blob = await response.blob();
+        console.log('Blob 生成成功，大小:', blob.size);
+        
         const url = URL.createObjectURL(blob);
+        console.log('创建 URL 成功:', url);
         
         // 释放之前的 URL
         if (this.audioUrl) {
@@ -134,8 +142,10 @@ export default {
         this.audioUrl = url;
         this.isLoading = false;
         
-        // 自动播放
-        this.play();
+        // 等待音频元素加载完成后再播放
+        setTimeout(() => {
+          this.play();
+        }, 100);
       } catch (error) {
         console.error('生成语音失败:', error);
         this.isLoading = false;
