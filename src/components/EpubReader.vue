@@ -558,6 +558,10 @@ export default {
       }
       console.log("selected elem =", p);
 
+      // 获取选中段落的文本
+      const selectedText = p.textContent.trim();
+      console.log("selected text =", selectedText);
+
       // 遍历toc，查找最近的章节名称
       // 然后基于章节名的位置，计算选中段落是第几个，作为ID
       const cfi = new ePub.CFI(p, contents.cfiBase);
@@ -573,7 +577,9 @@ export default {
         toc: toc,
         cfi: cfi,
         contents: contents,
-        segment_id: segment_id
+        segment_id: segment_id,
+        text: selectedText,
+        element: p
       }
 
       // 把 toolbar 移动到段落附近
@@ -1004,14 +1010,23 @@ export default {
       }
     },
     playText: async function(text) {
+      console.log('playText 被调用, text:', text);
       if (!this.tts) {
+        console.log('TTS 未初始化，正在初始化...');
         this.initTTS();
       }
+      console.log('TTS 实例:', this.tts);
       
       try {
+        console.log('设置 isPlaying 和 currentPlayText');
         this.isPlaying = true;
         this.currentPlayText = text;
+        console.log('isPlaying:', this.isPlaying);
+        console.log('currentPlayText:', this.currentPlayText);
+        
+        console.log('开始调用 tts.speak...');
         await this.tts.speak(text);
+        console.log('tts.speak 完成');
         this.isPlaying = false;
       } catch (error) {
         console.error('播放失败:', error);
@@ -1038,20 +1053,31 @@ export default {
       }
     },
     playFromHere: function() {
-      if (!this.selected_location) return;
+      console.log('playFromHere 被调用');
+      console.log('selected_location:', this.selected_location);
+      if (!this.selected_location) {
+        console.log('selected_location 为空，返回');
+        return;
+      }
       
-      const { contents, cfi } = this.selected_location;
-      try {
-        // 获取选中段落的文本
-        const range = this.rendition.getRange(cfi);
-        if (range) {
-          const text = range.toString().trim();
-          if (text) {
-            this.playText(text);
+      const { text } = this.selected_location;
+      console.log('从 selected_location 中获取的 text:', text);
+      
+      if (text && text.trim()) {
+        console.log('调用 playText');
+        this.playText(text.trim());
+      } else {
+        console.log('text 为空，尝试直接从 element 获取');
+        const { element } = this.selected_location;
+        if (element) {
+          const fallbackText = element.textContent.trim();
+          if (fallbackText) {
+            console.log('从 element 获取到 text:', fallbackText);
+            this.playText(fallbackText);
+          } else {
+            console.log('无法获取到文本');
           }
         }
-      } catch (error) {
-        console.error('获取文本失败:', error);
       }
     },
     playCurrentChapter: function() {
