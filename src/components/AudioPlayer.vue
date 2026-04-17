@@ -7,7 +7,15 @@
           <v-progress-circular indeterminate size="48" color="primary"></v-progress-circular>
           <p class="mt-2 text-center">正在生成语音...</p>
         </div>
+        <div v-else-if="!audioUrl" class="no-audio-state">
+          <p class="text-center">请选择文本并点击"从这里听"按钮</p>
+        </div>
         <div v-else>
+          <div v-if="autoplayBlocked" class="autoplay-blocked">
+            <v-alert type="info" density="compact">
+              自动播放被浏览器阻止，请点击播放按钮开始听书
+            </v-alert>
+          </div>
           <div class="controls">
             <v-btn
               icon
@@ -52,6 +60,13 @@
               density="compact"
             ></v-slider>
           </div>
+          <div class="debug-info mt-4" v-if="debug">
+            <v-divider class="mb-2"></v-divider>
+            <h6 class="text-caption">调试信息</h6>
+            <p class="text-xs">音频 URL: {{ audioUrl ? '已生成' : '无' }}</p>
+            <p class="text-xs">音频时长: {{ duration }} 秒</p>
+            <p class="text-xs">音频状态: {{ audioStatus }}</p>
+          </div>
         </div>
       </v-card-text>
     </v-card>
@@ -63,6 +78,7 @@
       @ended="onEnded"
       @play="onPlay"
       @pause="onPause"
+      @error="onAudioError"
     ></audio>
   </div>
 </template>
@@ -93,7 +109,10 @@ export default {
         { text: '中文 - 晓辰', value: 'zh-CN-XiaochenNeural' },
         { text: '中文 - 晓雨', value: 'zh-CN-XiaoyuNeural' }
       ],
-      tts: null
+      tts: null,
+      autoplayBlocked: false,
+      debug: true,
+      audioStatus: '未初始化'
     };
   },
   mounted() {
@@ -153,8 +172,41 @@ export default {
     },
     play() {
       if (this.$refs.audioRef) {
-        this.$refs.audioRef.play();
+        console.log('开始播放音频');
+        console.log('音频元素状态:', {
+          src: this.$refs.audioRef.src,
+          readyState: this.$refs.audioRef.readyState,
+          duration: this.$refs.audioRef.duration,
+          paused: this.$refs.audioRef.paused
+        });
+        
+        this.audioStatus = '正在播放';
+        
+        this.$refs.audioRef.play()
+          .then(() => {
+            console.log('音频播放成功');
+            this.audioStatus = '播放中';
+            this.autoplayBlocked = false;
+          })
+          .catch(error => {
+            console.error('音频播放失败:', error);
+            this.audioStatus = '播放失败';
+            // 尝试处理自动播放策略限制
+            if (error.name === 'NotAllowedError') {
+              console.log('自动播放被阻止，需要用户交互');
+              this.autoplayBlocked = true;
+            }
+          });
+      } else {
+        console.error('音频元素不存在');
+        this.audioStatus = '音频元素不存在';
       }
+    },
+    onAudioError(event) {
+      console.error('音频错误:', event);
+      this.audioStatus = '音频错误';
+      console.error('错误代码:', event.target.error.code);
+      console.error('错误消息:', event.target.error.message);
     },
     pause() {
       if (this.$refs.audioRef) {
