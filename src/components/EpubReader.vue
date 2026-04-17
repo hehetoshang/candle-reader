@@ -146,6 +146,7 @@ import BookToc from './BookToc.vue'
 import Guest from './Guest.vue'
 import UserCenter from './UserCenter.vue'
 import BookComments from './BookComments.vue'
+import { EdgeSpeechTTS } from '@lobehub/tts'
 
 export default {
   name: 'EpubReader',
