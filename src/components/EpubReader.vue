@@ -146,6 +146,7 @@ import BookToc from './BookToc.vue'
 import Guest from './Guest.vue'
 import UserCenter from './UserCenter.vue'
 import BookComments from './BookComments.vue'
+import { EdgeSpeechTTS } from '@lobehub/tts'
 
 export default {
   name: 'EpubReader',
@@ -994,71 +995,92 @@ export default {
         this.showTimeoutDialog = true;
       }
     },
-    // TTS 相关方法 - 使用浏览器原生 Web Speech API
+    // TTS 相关方法 - 使用 Lobe TTS + 浏览器原生 Audio
     initTTS: function() {
       try {
-        console.log('TTS 初始化成功 (使用 Web Speech API)');
+        this.tts = new EdgeSpeechTTS({
+          locale: 'zh-CN'
+        });
+        console.log('TTS 初始化成功 (使用 Lobe TTS)');
       } catch (error) {
         console.error('TTS 初始化失败:', error);
       }
     },
-    playText: function(text) {
+    playText: async function(text) {
       console.log('playText 被调用, text:', text);
       
-      if (!('speechSynthesis' in window)) {
-        console.error('您的浏览器不支持 Web Speech API');
-        alert('您的浏览器不支持语音合成功能');
-        return;
+      if (!this.tts) {
+        console.log('TTS 未初始化，正在初始化...');
+        this.initTTS();
       }
+      console.log('TTS 实例:', this.tts);
       
       try {
         console.log('设置 isPlaying 和 currentPlayText');
         this.isPlaying = true;
         this.currentPlayText = text;
         
-        // 取消之前的语音
-        window.speechSynthesis.cancel();
+        // 创建音频数据
+        const payload = {
+          input: text,
+          options: {
+            voice: 'zh-CN-YunxiNeural',
+            rate: this.settings.tts_rate,
+            pitch: this.settings.tts_pitch,
+            volume: this.settings.tts_volume
+          }
+        };
         
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.rate = this.settings.tts_rate;
-        utterance.pitch = this.settings.tts_pitch;
-        utterance.volume = this.settings.tts_volume;
+        console.log('开始调用 tts.create...');
+        const response = await this.tts.create(payload);
+        console.log('tts.create 完成, response:', response);
         
-        utterance.onend = () => {
+        // 获取音频 blob
+        const audioBlob = await response.blob();
+        console.log('音频 blob 大小:', audioBlob.size);
+        
+        // 创建音频 URL 并播放
+        const audioUrl = URL.createObjectURL(audioBlob);
+        this.audioElement = new Audio(audioUrl);
+        
+        this.audioElement.onended = () => {
           console.log('播放完成');
           this.isPlaying = false;
+          URL.revokeObjectURL(audioUrl);
         };
         
-        utterance.onerror = (event) => {
+        this.audioElement.onerror = (event) => {
           console.error('播放错误:', event);
           this.isPlaying = false;
+          URL.revokeObjectURL(audioUrl);
         };
         
-        console.log('开始播放');
-        window.speechSynthesis.speak(utterance);
+        console.log('开始播放音频');
+        await this.audioElement.play();
       } catch (error) {
         console.error('播放失败:', error);
         this.isPlaying = false;
       }
     },
     pauseTTS: function() {
-      if (this.isPlaying && 'speechSynthesis' in window) {
-        window.speechSynthesis.pause();
+      if (this.audioElement && this.isPlaying) {
+        this.audioElement.pause();
         this.isPlaying = false;
       }
     },
     resumeTTS: function() {
-      if (!this.isPlaying && 'speechSynthesis' in window) {
-        window.speechSynthesis.resume();
+      if (this.audioElement && !this.isPlaying) {
+        this.audioElement.play();
         this.isPlaying = true;
       }
     },
     stopTTS: function() {
-      if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
-        this.isPlaying = false;
-        this.currentPlayText = '';
+      if (this.audioElement) {
+        this.audioElement.pause();
+        this.audioElement = null;
       }
+      this.isPlaying = false;
+      this.currentPlayText = '';
     },
     playFromHere: function() {
       console.log('playFromHere 被调用');
@@ -1301,6 +1323,8 @@ export default {
     check_if_selected_content: false,
     showTimeoutDialog: false,
     // TTS 相关状态
+    tts: null,
+    audioElement: null,
     isPlaying: false,
     currentPlayText: '',
   })
