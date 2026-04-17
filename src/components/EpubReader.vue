@@ -146,7 +146,6 @@ import BookToc from './BookToc.vue'
 import Guest from './Guest.vue'
 import UserCenter from './UserCenter.vue'
 import BookComments from './BookComments.vue'
-import { EdgeSpeechTTS } from '@lobehub/tts'
 
 export default {
   name: 'EpubReader',
@@ -995,59 +994,68 @@ export default {
         this.showTimeoutDialog = true;
       }
     },
-    // TTS 相关方法
+    // TTS 相关方法 - 使用浏览器原生 Web Speech API
     initTTS: function() {
       try {
-        this.tts = new EdgeSpeechTTS({
-          voice: this.ttsSettings.voice,
-          rate: this.ttsSettings.rate,
-          pitch: this.ttsSettings.pitch,
-          volume: this.ttsSettings.volume,
-        });
-        console.log('TTS 初始化成功');
+        console.log('TTS 初始化成功 (使用 Web Speech API)');
       } catch (error) {
         console.error('TTS 初始化失败:', error);
       }
     },
-    playText: async function(text) {
+    playText: function(text) {
       console.log('playText 被调用, text:', text);
-      if (!this.tts) {
-        console.log('TTS 未初始化，正在初始化...');
-        this.initTTS();
+      
+      if (!('speechSynthesis' in window)) {
+        console.error('您的浏览器不支持 Web Speech API');
+        alert('您的浏览器不支持语音合成功能');
+        return;
       }
-      console.log('TTS 实例:', this.tts);
       
       try {
         console.log('设置 isPlaying 和 currentPlayText');
         this.isPlaying = true;
         this.currentPlayText = text;
-        console.log('isPlaying:', this.isPlaying);
-        console.log('currentPlayText:', this.currentPlayText);
         
-        console.log('开始调用 tts.speak...');
-        await this.tts.speak(text);
-        console.log('tts.speak 完成');
-        this.isPlaying = false;
+        // 取消之前的语音
+        window.speechSynthesis.cancel();
+        
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.rate = this.settings.tts_rate;
+        utterance.pitch = this.settings.tts_pitch;
+        utterance.volume = this.settings.tts_volume;
+        
+        utterance.onend = () => {
+          console.log('播放完成');
+          this.isPlaying = false;
+        };
+        
+        utterance.onerror = (event) => {
+          console.error('播放错误:', event);
+          this.isPlaying = false;
+        };
+        
+        console.log('开始播放');
+        window.speechSynthesis.speak(utterance);
       } catch (error) {
         console.error('播放失败:', error);
         this.isPlaying = false;
       }
     },
     pauseTTS: function() {
-      if (this.tts && this.isPlaying) {
-        this.tts.pause();
+      if (this.isPlaying && 'speechSynthesis' in window) {
+        window.speechSynthesis.pause();
         this.isPlaying = false;
       }
     },
     resumeTTS: function() {
-      if (this.tts && !this.isPlaying) {
-        this.tts.resume();
+      if (!this.isPlaying && 'speechSynthesis' in window) {
+        window.speechSynthesis.resume();
         this.isPlaying = true;
       }
     },
     stopTTS: function() {
-      if (this.tts) {
-        this.tts.stop();
+      if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
         this.isPlaying = false;
         this.currentPlayText = '';
       }
@@ -1293,15 +1301,8 @@ export default {
     check_if_selected_content: false,
     showTimeoutDialog: false,
     // TTS 相关状态
-    tts: null,
     isPlaying: false,
     currentPlayText: '',
-    ttsSettings: {
-      voice: 'zh-CN-YunxiNeural',
-      rate: 1.0,
-      pitch: 1.0,
-      volume: 1.0
-    },
   })
 }
 </script>
