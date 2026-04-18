@@ -64,12 +64,24 @@
       <v-card title="开发中"></v-card>
     </v-bottom-sheet>
 
+    <!-- 音频播放面板 -->
+    <v-bottom-sheet class="fixed mb-14" max-height="90%" v-model="menu.panels.audio" contained z-index="234">
+      <advanced-audio-player 
+        :text="selected_text"
+        :chapter-title="selected_location?.toc?.label || '当前章节'"
+        :chapters="tts_chapters"
+        :active-chapter-index="listen_start_chapter_index"
+        @chapter-end="handle_chapter_end"
+        @chapter-click="handle_chapter_click">
+      </advanced-audio-player>
+    </v-bottom-sheet>
+
     <!-- 浮动工具栏 -->
     <div id="comments-toolbar" :style="`left: ${toolbar_left}px; top: ${toolbar_top}px;`">
       <v-toolbar density="compact" border dense floating elevation="10" rounded>
         <v-btn @click="on_click_toolbar_comments">发段评</v-btn>
         <v-divider vertical></v-divider>
-        <v-btn>从这里听</v-btn>
+        <v-btn @click="on_click_toolbar_listen">从这里听</v-btn>
         <v-divider vertical></v-divider>
         <v-btn>复制</v-btn>
         <v-divider vertical></v-divider>
@@ -125,6 +137,7 @@ import BookToc from './BookToc.vue'
 import Guest from './Guest.vue'
 import UserCenter from './UserCenter.vue'
 import BookComments from './BookComments.vue'
+import AdvancedAudioPlayer from './AdvancedAudioPlayer.vue'
 
 export default {
   name: 'EpubReader',
@@ -133,7 +146,8 @@ export default {
     BookToc,
     Guest,
     UserCenter,
-    BookComments
+    BookComments,
+    AdvancedAudioPlayer
   },
   props: ['book_url', 'display_url', 'debug', 'themes_css'],
   computed: {
@@ -507,11 +521,18 @@ export default {
       return (this.toolbar_left > 0);
     },
     on_select_content: function (cfiRange, contents) {
-      console.log("on selectd", cfiRange, contents)
+      console.log("===== 开始处理文本选择 =====");
+      console.log("on selectd", cfiRange, contents);
       this.is_handlering_selected_content = true;
 
-      // 找到选中的元素，并上溯到 P 或者 Hx 对象
-      const range = this.rendition.getRange(cfiRange);
+      // 获取用户实际选中的范围（不是上溯到 P 的范围）
+      const selectedRange = this.rendition.getRange(cfiRange);
+      const selectedText = selectedRange ? selectedRange.toString().trim() : '';
+      console.log("用户选中的文本:", selectedText);
+      console.log("用户选中文本长度:", selectedText.length);
+      
+      // 找到选中的元素，并上溯到 P 或者 Hx 对象（用于定位）
+      const range = selectedRange;
       var p = range.startContainer.nodeType === Node.TEXT_NODE
         ? range.startContainer.parentElement
         : range.startContainer;
@@ -519,14 +540,15 @@ export default {
         p = p.parentElement;
       }
       console.log("selected elem =", p);
+      console.log("selected elem textContent =", p.textContent?.substring(0, 100));
 
-      // 遍历toc，查找最近的章节名称
-      // 然后基于章节名的位置，计算选中段落是第几个，作为ID
+      // 遍历 toc，查找最近的章节名称
+      // 然后基于章节名的位置，计算选中段落是第几个，作为 ID
       const cfi = new ePub.CFI(p, contents.cfiBase);
       const toc = this.find_toc(cfi, contents);
       console.log("cfi = ", cfi, "toc =", toc);
 
-      // 基于cfi的数字快速计算
+      // 基于 cfi 的数字快速计算
       // const segment_id = cfi.path.steps[1].index - toc.cfi.path.steps[1].index;
       const segment_id = this.count_distinct_between(toc.elem, p);
       console.log("selected segment_id = ", segment_id);
@@ -534,19 +556,351 @@ export default {
       this.selected_location = {
         toc: toc,
         cfi: cfi,
+        cfiRange: cfiRange,  // 保存原始的 cfiRange
         contents: contents,
-        segment_id: segment_id
+        segment_id: segment_id,
+        elem: p,  // 保存选中的 DOM 元素
+        selectedText: selectedText,  // 保存用户实际选中的文本（重要！）
+        chapterIndex: this.book.spine.get(toc.href)?.index || 0  // 保存当前章节索引
       }
+      console.log("selected_location =", this.selected_location);
 
       // 把 toolbar 移动到段落附近
-      const view = this.rendition.views()._views.filter( view => { return view.index == contents.sectionIndex})[0]
+      const view = this.rendition.views()._views.filter( view => { return view.index == contents.sectionIndex})[0];
+      console.log("View object:", view);
       this.show_toolbar(p.getBoundingClientRect(), view.iframe.getBoundingClientRect());
+      console.log("===== 文本选择处理完成 =====");
     },
     on_click_toolbar_comments: function () {
       console.log("点击发表评论按钮", this.selected_location)
       const s = this.selected_location;
       this.hide_toolbar();
       this.show_selected_comments(s.toc, s.segment_id, s.cfi);
+    },
+    on_click_toolbar_listen: function () {
+      console.log("===== 点击从这里听按钮 =====");
+      console.log("selected_location =", this.selected_location);
+      
+      if (!this.selected_location || !this.selected_location.toc) {
+        console.error("没有选中的内容");
+        alert("请先选择要朗读的文本");
+        return;
+      }
+      
+      try {
+        // 获取当前章节的完整文本
+        const toc = this.selected_location.toc;
+        console.log("当前章节:", toc.label);
+        
+        // 从 epub 中获取当前章节的完整内容
+        const chapter = this.book.spine.get(toc.href);
+        console.log("Chapter object:", chapter);
+        
+        if (!chapter) {
+          throw new Error('无法获取章节内容');
+        }
+        
+        // 获取章节的完整文本
+        chapter.load(this.book.load.bind(this.book))
+          .then((contents) => {
+            console.log("Chapter contents loaded");
+            
+            // 从 DOM 中提取所有段落文本
+            const doc = contents.ownerDocument || contents;
+            const paragraphs = Array.from(doc.querySelectorAll('p, h1, h2, h3, h4, h5, h6'));
+            console.log("Found paragraphs:", paragraphs.length);
+            
+            // 提取所有文本，标题后面加换行符，段落之间也加换行符
+            const fullText = paragraphs.map(p => {
+              const text = p.textContent.trim();
+              const nodeName = p.nodeName.toUpperCase();
+              // 标题后面加换行符，这样分句时会分开
+              if (nodeName.startsWith('H')) {
+                return text + '\n';
+              }
+              return text;
+            }).filter(t => t).join('');
+            console.log("Full chapter text length:", fullText.length);
+            console.log("Full chapter text preview:", fullText.substring(0, 200));
+            
+            if (!fullText || fullText.length === 0) {
+              throw new Error('章节内容为空');
+            }
+            
+            // 获取用户选中的文本
+            const selectedText = this.selected_location.selectedText || '';
+            console.log("Selected text:", selectedText.substring(0, 100));
+            console.log("Selected text length:", selectedText.length);
+            
+            // 在完整文本中查找选中内容的起始位置
+            let startIndex = 0;
+            if (selectedText && selectedText.length > 0) {
+              // 找到选中内容在完整文本中的位置
+              const position = fullText.indexOf(selectedText);
+              if (position >= 0) {
+                startIndex = position;
+                console.log("Found selected text at position:", startIndex);
+                console.log("从选中位置开始播放");
+              } else {
+                console.warn("选中的文本在章节中找不到，可能格式有差异");
+                console.warn("将使用段落定位方式");
+                // 如果找不到完全匹配，使用段落定位
+                const selectedElem = this.selected_location.elem;
+                const selectedParagraphIndex = paragraphs.indexOf(selectedElem);
+                if (selectedParagraphIndex >= 0) {
+                  // 计算该段落之前的所有文本长度
+                  let lengthBefore = 0;
+                  for (let i = 0; i < selectedParagraphIndex; i++) {
+                    lengthBefore += paragraphs[i].textContent.trim().length;
+                  }
+                  startIndex = lengthBefore;
+                  console.log("Selected paragraph starts at:", startIndex);
+                }
+              }
+            } else {
+              console.log("没有选中文本，从段落开始");
+              // 没有选中文本，从选中的段落开始
+              const selectedElem = this.selected_location.elem;
+              const selectedParagraphIndex = paragraphs.indexOf(selectedElem);
+              if (selectedParagraphIndex >= 0) {
+                let lengthBefore = 0;
+                for (let i = 0; i < selectedParagraphIndex; i++) {
+                  lengthBefore += paragraphs[i].textContent.trim().length;
+                }
+                startIndex = lengthBefore;
+                console.log("从段落位置开始:", startIndex);
+              }
+            }
+            
+            // 从选中位置开始，提取后续所有文本
+            const remainingText = fullText.substring(startIndex);
+            
+            console.log("Remaining text length:", remainingText.length);
+            console.log("Remaining text preview:", remainingText.substring(0, 100));
+            
+            if (!remainingText || remainingText.length === 0) {
+              throw new Error('选中的位置之后没有内容');
+            }
+            
+            // 设置选中文本为从选中位置开始的后续所有内容
+            this.selected_text = remainingText;
+            console.log("设置 selected_text 成功，长度:", remainingText.length);
+            
+            // 保存当前章节索引，用于后续章节切换
+            this.listen_start_chapter_index = this.selected_location.chapterIndex;
+            console.log("Listen start from chapter index:", this.listen_start_chapter_index);
+            
+            // 初始化章节列表
+            this.init_tts_chapters();
+            
+            // 标记进入听书模式
+            this.is_playing_tts = true;
+            console.log("进入听书模式");
+            
+            // 隐藏工具栏
+            this.hide_toolbar();
+            console.log("隐藏工具栏完成");
+            
+            // 打开音频面板
+            this.set_menu('audio');
+            console.log("设置菜单为 audio 完成");
+            console.log("===== 从这里听按钮处理完成 =====");
+          })
+          .catch((error) => {
+            console.error("加载章节内容失败:", error);
+            alert("加载章节内容失败，请重试");
+          });
+        
+      } catch (error) {
+        console.error("从这里听处理失败:", error);
+        alert("处理失败：" + error.message);
+      }
+    },
+    /**
+     * 加载下一章文本并继续播放
+     */
+    load_next_chapter_for_tts: function () {
+      if (!this.is_playing_tts) {
+        console.log("不在听书模式，跳过");
+        return;
+      }
+      
+      const nextChapterIndex = this.listen_start_chapter_index + 1;
+      console.log("===== 准备加载下一章 =====");
+      console.log("当前章节索引:", this.listen_start_chapter_index);
+      console.log("下一章索引:", nextChapterIndex);
+      
+      // 检查是否还有下一章
+      if (nextChapterIndex >= this.book.spine.length) {
+        console.log("已经是最后一章，听书结束");
+        this.is_playing_tts = false;
+        alert("全书已播放完毕！");
+        return;
+      }
+      
+      // 获取下一章
+      const nextSpine = this.book.spine.get(nextChapterIndex);
+      if (!nextSpine) {
+        console.error("无法获取下一章");
+        this.is_playing_tts = false;
+        return;
+      }
+      
+      console.log("下一章:", nextSpine.href);
+      
+      // 加载下一章内容
+      nextSpine.load(this.book.load.bind(this.book))
+        .then((contents) => {
+          console.log("下一章内容加载成功");
+          
+          // 从 DOM 中提取所有段落文本
+          const doc = contents.ownerDocument || contents;
+          const paragraphs = Array.from(doc.querySelectorAll('p, h1, h2, h3, h4, h5, h6'));
+          console.log("Found paragraphs:", paragraphs.length);
+          
+          // 提取所有文本，标题后面加换行符
+          const fullText = paragraphs.map(p => {
+            const text = p.textContent.trim();
+            const nodeName = p.nodeName.toUpperCase();
+            if (nodeName.startsWith('H')) {
+              return text + '\n';
+            }
+            return text;
+          }).filter(t => t).join('');
+          console.log("下一章文本长度:", fullText.length);
+          console.log("下一章预览:", fullText.substring(0, 100));
+          
+          if (!fullText || fullText.length === 0) {
+            console.warn("下一章内容为空，跳过");
+            this.listen_start_chapter_index = nextChapterIndex;
+            // 继续加载下下一章
+            setTimeout(() => this.load_next_chapter_for_tts(), 1000);
+            return;
+          }
+          
+          // 更新选中文本为下一章全文
+          this.selected_text = fullText;
+          console.log("更新 selected_text 为下一章内容");
+          
+          // 更新章节索引
+          this.listen_start_chapter_index = nextChapterIndex;
+          console.log("更新章节索引为:", this.listen_start_chapter_index);
+          
+          console.log("===== 下一章加载完成 =====");
+        })
+        .catch((error) => {
+          console.error("加载下一章失败:", error);
+          // 尝试跳过这一章
+          this.listen_start_chapter_index = nextChapterIndex;
+          setTimeout(() => this.load_next_chapter_for_tts(), 1000);
+        });
+    },
+    /**
+     * 处理章节播放完成事件
+     */
+    handle_chapter_end: function () {
+      console.log("===== 章节播放完成事件 =====");
+      console.log("is_playing_tts:", this.is_playing_tts);
+      
+      if (this.is_playing_tts) {
+        console.log("触发加载下一章");
+        // 延迟一下，确保当前章节完全播放完毕
+        setTimeout(() => {
+          this.load_next_chapter_for_tts();
+        }, 500);
+      } else {
+        console.log("不在听书模式，不加载下一章");
+      }
+    },
+    /**
+     * 处理章节点击事件
+     */
+    handle_chapter_click: function (index) {
+      console.log("===== 章节点击事件 =====");
+      console.log("点击的章节索引:", index);
+      
+      if (!this.is_playing_tts) {
+        console.log("不在听书模式，先标记为听书模式");
+        this.is_playing_tts = true;
+      }
+      
+      // 更新当前章节索引
+      this.listen_start_chapter_index = index;
+      console.log("更新章节索引为:", index);
+      
+      // 获取并加载该章节
+      const spine = this.book.spine.get(index);
+      if (!spine) {
+        console.error("无法获取章节");
+        return;
+      }
+      
+      console.log("加载章节:", spine.href);
+      
+      spine.load(this.book.load.bind(this.book))
+        .then((contents) => {
+          console.log("章节内容加载成功");
+          
+          // 从 DOM 中提取所有段落文本
+          const doc = contents.ownerDocument || contents;
+          const paragraphs = Array.from(doc.querySelectorAll('p, h1, h2, h3, h4, h5, h6'));
+          console.log("Found paragraphs:", paragraphs.length);
+          
+          // 提取所有文本，标题后面加换行符
+          const fullText = paragraphs.map(p => {
+            const text = p.textContent.trim();
+            const nodeName = p.nodeName.toUpperCase();
+            if (nodeName.startsWith('H')) {
+              return text + '\n';
+            }
+            return text;
+          }).filter(t => t).join('');
+          console.log("章节文本长度:", fullText.length);
+          
+          if (!fullText || fullText.length === 0) {
+            console.warn("章节内容为空");
+            alert("该章节内容为空");
+            return;
+          }
+          
+          // 更新选中文本为该章节全文
+          this.selected_text = fullText;
+          console.log("更新 selected_text 为章节内容");
+          console.log("章节加载完成，开始播放");
+        })
+        .catch((error) => {
+          console.error("加载章节失败:", error);
+          alert("加载章节失败，请重试");
+        });
+    },
+    /**
+     * 初始化 TTS 章节列表
+     */
+    init_tts_chapters: function () {
+      console.log("===== 初始化 TTS 章节列表 =====");
+      
+      if (!this.book || !this.book.spine) {
+        console.warn("Book or spine not available");
+        return;
+      }
+      
+      // 从 spine 生成章节列表
+      const chapters = [];
+      for (let i = 0; i < this.book.spine.length; i++) {
+        const spine = this.book.spine.get(i);
+        // 尝试获取对应的 TOC 信息
+        const tocItem = this.toc_items.find(toc => toc.href === spine.href);
+        
+        chapters.push({
+          index: i,
+          label: tocItem ? tocItem.label : `第${i + 1}章`,
+          href: spine.href
+        });
+      }
+      
+      this.tts_chapters = chapters;
+      console.log("初始化了", chapters.length, "个章节");
+      console.log("章节列表:", chapters);
     },
     on_keyup: function (e) {
       const c = e.keyCode || e.which;
@@ -1119,6 +1473,7 @@ export default {
         settings: false,
         comments: false,
         ai: false,
+        audio: false,  // 音频面板
       }
     },
     theme_mode: "day",
@@ -1126,6 +1481,10 @@ export default {
     comments: [],
     comments_location: {}, // 评论内容的位置
     selected_location: {}, // 选中内容的位置
+    selected_text: '', // 选中的文本（用于 TTS）
+    listen_start_chapter_index: 0, // 开始听书的章节索引
+    is_playing_tts: false, // 是否正在听书模式
+    tts_chapters: [], // TTS 章节列表
 
     current_toc_title: "",
     current_toc: null, // 当前阅读的章节对象
